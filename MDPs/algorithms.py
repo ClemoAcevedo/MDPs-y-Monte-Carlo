@@ -1,9 +1,6 @@
 import time
 
 def iterative_policy_evaluation(problem, gamma, theta):
-    """
-    Evalúa una política uniformemente aleatoria. (Parte d)
-    """
     V = {s: 0.0 for s in problem.states}
     t0 = time.time()
 
@@ -36,9 +33,6 @@ def iterative_policy_evaluation(problem, gamma, theta):
     return V, execution_time
 
 def get_greedy_policy(problem, V, gamma):
-    """
-    Extrae la política greedy a partir de una función de valor V.
-    """
     policy = {}
     for s in V.keys():
         if problem.is_terminal(s):
@@ -63,9 +57,6 @@ def get_greedy_policy(problem, V, gamma):
     return policy
 
 def evaluate_specific_policy(problem, policy, gamma, theta):
-    """
-    Evalúa una política DETERMINISTA específica (no aleatoria).
-    """
     V = {s: 0.0 for s in problem.states}
     t0 = time.time()
 
@@ -96,9 +87,6 @@ def evaluate_specific_policy(problem, policy, gamma, theta):
 
 
 def value_iteration(problem, gamma, theta):
-    """
-    Implementa el algoritmo de Value Iteration para encontrar la función de valor óptima.
-    """
     V = {s: 0.0 for s in problem.states}
     t0 = time.time()
 
