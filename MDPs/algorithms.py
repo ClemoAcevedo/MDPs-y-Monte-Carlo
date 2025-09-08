@@ -133,19 +133,19 @@ def get_all_optimal_actions(problem, V, gamma):
 
         action_values = {}
         for action in available_actions:
-            q_value = 0
+            action_value = 0
             transitions = problem.get_transitions(s, action)
             for (prob, s_next, reward) in transitions:
-                q_value += prob * (reward + gamma * V[s_next])
-            action_values[action] = q_value
+                action_value += prob * (reward + gamma * V[s_next])
+            action_values[action] = action_value
         
-        max_q_value = -float('inf')
-        for q in action_values.values():
-            max_q_value = max(max_q_value, round(q, 5))
+        max_action_value = -float('inf')
+        for action in action_values.values():
+            max_action_value = max(max_action_value, round(action, 5))
             
         optimal_actions = []
         for action, q in action_values.items():
-            if round(q, 5) == max_q_value:
+            if round(q, 5) == max_action_value:
                 optimal_actions.append(action)
         
         policy[s] = optimal_actions
