@@ -131,3 +131,35 @@ def value_iteration(problem, gamma, theta):
             
     execution_time = time.time() - t0
     return V, execution_time
+
+
+def get_all_optimal_actions(problem, V, gamma):
+    policy = {}
+    for s in V.keys():
+        if problem.is_terminal(s):
+            continue
+
+        available_actions = problem.get_available_actions(s)
+        if not available_actions:
+            continue
+
+        action_values = {}
+        for action in available_actions:
+            q_value = 0
+            transitions = problem.get_transitions(s, action)
+            for (prob, s_next, reward) in transitions:
+                q_value += prob * (reward + gamma * V[s_next])
+            action_values[action] = q_value
+        
+        max_q_value = -float('inf')
+        for q in action_values.values():
+            max_q_value = max(max_q_value, round(q, 5))
+            
+        optimal_actions = []
+        for action, q in action_values.items():
+            if round(q, 5) == max_q_value:
+                optimal_actions.append(action)
+        
+        policy[s] = optimal_actions
+        
+    return policy

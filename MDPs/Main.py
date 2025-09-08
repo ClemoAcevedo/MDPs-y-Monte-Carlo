@@ -1,10 +1,11 @@
 import random
+import matplotlib.pyplot as plt
 
 from Problems.CookieProblem import CookieProblem
 from Problems.GridProblem import GridProblem
 from Problems.GamblerProblem import GamblerProblem
 
-from Algorithms.policy_evaluator import iterative_policy_evaluation, get_greedy_policy, evaluate_specific_policy, value_iteration
+from algorithms import iterative_policy_evaluation, get_greedy_policy, evaluate_specific_policy, value_iteration, get_all_optimal_actions
 
 
 def get_action_from_user(actions):
@@ -68,30 +69,35 @@ def run_experiment(size, problem, gamma, theta):
         print(f"State {state}: Value {V[state]:.4f}")
     print("\n")
 
-def show_greedy_policy_grid(size):
-    print(f"\n--- (Extra) Visualización Política Greedy para GridProblem {size}x{size} ---")
-    problem = GridProblem(grid_size=size)
-    gamma, theta = 1.0, 1e-9
-    V_random, _ = iterative_policy_evaluation(problem, gamma, theta)
-    greedy_policy = get_greedy_policy(problem, V_random, gamma)
-    action_symbols = {"up": "↑", "down": "↓", "left": "←", "right": "→", None: "G"}
-    location_id = 0
-    for i in range(size):
-        for j in range(size):
-            print(f" {action_symbols.get(greedy_policy.get(location_id))} ", end="")
-            location_id += 1
-        print()
+def plot_gambler_policy(policy, prob_head):
+    states = []
+    actions = []
+    
+    for state, optimal_actions in policy.items():
+        for action in optimal_actions:
+            states.append(state)
+            actions.append(action)
+            
+    plt.figure(figsize=(12, 7))
+    plt.plot(states, actions, 'b.', markersize=4) 
+    plt.title(f'Políticas Óptimas para GamblerProblem (Probabilidad = {prob_head})')
+    plt.xlabel('Estado (Capital)')
+    plt.ylabel('Acción (Apuesta)')
+    plt.grid(True, linestyle='--', alpha=0.6)
+    file_name = f'gambler_policy_ph_{prob_head}.png'
+    plt.savefig(file_name)
+    print(f"Gráfico guardado en: {file_name}")
+    plt.close()
+
 
 
 if __name__ == '__main__':
     
     theta = 1e-9
-    
-    # Almacenamiento de resultados de la parte (d) para usarlos en la parte (g)
     results_d = {}
     problems_info = {}
+    results_h_optimal_V = {} 
 
-    # --- Parte (d): Evaluación de Política Aleatoria ---
     print("--- Parte (d): Evaluación de Política Aleatoria ---")
     
     print("\n# GridProblem")
@@ -124,7 +130,6 @@ if __name__ == '__main__':
         problems_info[key] = {'problem': problem, 'gamma': gamma_gambler}
         print(f"Prob. cara {prob_head} | Valor Aleatorio: {V_random[problem.get_initial_state()]:.3f} | Tiempo: {exec_time:.3f}s")
 
-    # --- Parte (f): Efecto del Factor de Descuento (gamma) ---
     print("\n" + "="*50)
     print("--- Parte (f): Efecto de Gamma en el Tiempo de Convergencia ---")
     gamma_bajo = 0.5
@@ -144,7 +149,6 @@ if __name__ == '__main__':
     _, t_bajo_gambler = iterative_policy_evaluation(problem_f_gambler, gamma_bajo, theta)
     print(f"GamblerProblem | Tiempo con gamma alto ({gamma_gambler}): {t_alto_gambler:.3f}s | Tiempo con gamma bajo ({gamma_bajo}): {t_bajo_gambler:.3f}s")
 
-    # --- Parte (g): Evaluación de Política Greedy ---
     print("\n" + "="*50)
     print("--- Parte (g): Evaluación de Política Greedy ---")
     
@@ -172,7 +176,6 @@ if __name__ == '__main__':
         V_greedy, _ = evaluate_specific_policy(problem, greedy_policy, gamma, theta)
         print(f"Prob. cara {prob_head} | Valor Greedy: {V_greedy[problem.get_initial_state()]:.3f}")
 
-    # --- Parte (h): Búsqueda de Valores Óptimos con Value Iteration ---
     print("\n" + "="*50)
     print("--- Parte (h): Búsqueda de Valores Óptimos con Value Iteration ---")
     
@@ -192,4 +195,19 @@ if __name__ == '__main__':
     for prob_head in [0.25, 0.4, 0.55]:
         problem = GamblerProblem(prob_head=prob_head)
         V_optimal, exec_time = value_iteration(problem, gamma_gambler, theta)
+        key = f"GamblerProblem_{prob_head}"
+        results_h_optimal_V[key] = V_optimal
+        
         print(f"Prob. cara {prob_head} | Valor Óptimo: {V_optimal[problem.get_initial_state()]:.3f} | Tiempo: {exec_time:.3f}s")
+
+    print("\n" + "="*50)
+    print("--- Parte (i): Gráficos de Políticas Óptimas para GamblerProblem ---")
+    
+    for prob_head in [0.25, 0.4, 0.55]:
+        print(f"Generando gráfico para Prob. Cara = {prob_head}...")
+        
+        key = f"GamblerProblem_{prob_head}"
+        V_optimal = results_h_optimal_V[key]
+        problem = GamblerProblem(prob_head=prob_head)
+        optimal_policies = get_all_optimal_actions(problem, V_optimal, gamma_gambler)
+        plot_gambler_policy(optimal_policies, prob_head)
