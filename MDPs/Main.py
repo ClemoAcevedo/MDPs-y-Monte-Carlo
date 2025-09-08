@@ -93,7 +93,7 @@ def plot_gambler_policy(policy, prob_head):
 
 if __name__ == '__main__':
     
-    theta = 1e-9
+    theta =  0.0000000001
     results_d = {}
     problems_info = {}
     results_h_optimal_V = {} 
