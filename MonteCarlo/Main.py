@@ -154,8 +154,8 @@ def plot_cliff_trajectory_snapshot(agent: MonteCarlo, width: int, height: int, t
     plt.savefig(filename, dpi=150)
     plt.close()
 
-def generate_and_print_blackjack_policy(agent: MonteCarlo, run_num: int):
-    action_map = {0: 'P', 1: 'H'}
+def generate_and_print_blackjack_policy(agent: MonteCarlo, run_num: int, action_space: List[Any]):
+    action_map = {action_space[0]: 'H', action_space[1]: 'P'}
 
     def get_policy_table(usable_ace: bool):
         player_sums = range(21, 11, -1)
@@ -165,7 +165,7 @@ def generate_and_print_blackjack_policy(agent: MonteCarlo, run_num: int):
         for p_sum in player_sums:
             row = []
             for d_card in dealer_cards:
-                state = (p_sum, d_card, usable_ace)
+                state = (p_sum, usable_ace, d_card)
                 action = agent.get_greedy_action(state)
                 row.append(action_map.get(action, '?'))
             policy_grid.append([str(p_sum)] + row)
@@ -192,7 +192,6 @@ def generate_and_print_blackjack_policy(agent: MonteCarlo, run_num: int):
         print(f"{' | '.join(f'{item:^4}' for item in row)}")
     print("-" * len(' | '.join(f'{h:^4}' for h in header_line)))
 
-
 if __name__ == "__main__":
     now = datetime.now().strftime('%Y%m%d_%H%M')
     bj_checkpoints, bj_all_returns, bj_agents = run_experiment(
@@ -215,8 +214,11 @@ if __name__ == "__main__":
     print("      GENERANDO POLÍTICAS FINALES DE BLACKJACK")
     print("="*60)
     print("Leyenda: P = Plantarse (Stick), H = Pedir (Hit)\n")
+    
+    bj_env = BlackjackEnv()
     for i, agent in enumerate(bj_agents):
-        generate_and_print_blackjack_policy(agent, run_num=i + 1)
+        generate_and_print_blackjack_policy(agent, run_num=i + 1, action_space=bj_env.action_space)
+        
     print("\n" + "="*60 + "\n")
     
     c6_env = CliffEnv(width=6)
