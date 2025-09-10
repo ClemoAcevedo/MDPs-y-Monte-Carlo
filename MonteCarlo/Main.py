@@ -1,398 +1,258 @@
-import numpy as np
-import matplotlib.pyplot as plt
-from datetime import datetime
 import time
+from datetime import datetime
+from typing import List, Tuple, Any
+
+import matplotlib.pyplot as plt
+import numpy as np
 
 from Environments.BlackjackEnv import BlackjackEnv
 from Environments.CliffEnv import CliffEnv
 from MonteCarlo import MonteCarlo
 
-def plot_results(checkpoints, all_runs_returns, avg_returns, title, ylabel, filename):
-    """
-    Función mejorada para graficar los resultados.
-    Dibuja cada corrida individualmente con transparencia y el promedio de forma destacada.
-    """
-    plt.style.use('seaborn-v0_8' if 'seaborn-v0_8' in plt.style.available else 'default')
-    fig, ax = plt.subplots(figsize=(12, 8))
+def evaluate_policy(agent: MonteCarlo, env: Any, num_episodes: int) -> float:
+    total_return = 0.0
+    for _ in range(num_episodes):
+        state = env.reset()
+        done = False
+        episode_return = 0.0
+        while not done:
+            action = agent.get_greedy_action(state)
+            state, reward, done = env.step(action)
+            episode_return += reward
+        total_return += episode_return
+    return total_return / num_episodes
 
-    # Paleta de colores más profesional
-    individual_colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd']
-    average_color = '#e377c2'
-    
-    # Dibujar corridas individuales
-    for i, run_returns in enumerate(all_runs_returns):
-        ax.plot(checkpoints, run_returns, 
-                color=individual_colors[i % len(individual_colors)], 
-                linestyle='-', alpha=0.6, linewidth=1.5,
-                label=f'Corrida {i+1}')
+def run_experiment(
+    title: str,
+    env: Any,
+    num_runs: int,
+    train_episodes: int,
+    eval_every: int,
+    eval_episodes: int,
+    epsilon: float,
+    gamma: float,
+    experiment_tag: str = "",
+    grid_width: int | None = None,
+    grid_height: int | None = None
+) -> Tuple[List[int], List[List[float]], List[MonteCarlo]]:
+    print(f"--- Iniciando Experimento: {title} ---")
+    t0_exp = time.time()
+    all_runs_returns: List[List[float]] = []
+    trained_agents: List[MonteCarlo] = []
+    for r in range(num_runs):
+        t0_run = time.time()
+        print(f"  Run {r + 1}/{num_runs}...")
+        agent = MonteCarlo(actions=env.action_space, epsilon=epsilon, gamma=gamma, seed=1000 + r)
+        checkpoints: List[int] = []
+        run_returns: List[float] = []
+        for ep in range(1, train_episodes + 1):
+            agent.train_one_episode(env)
+            if ep == 1 or ep % eval_every == 0:
+                avg_return = evaluate_policy(agent, env, eval_episodes)
+                checkpoints.append(ep)
+                run_returns.append(avg_return)
+                print(f"    [Run {r+1:02d}] Ep: {ep:<10,d} | Retorno Promedio: {avg_return:.4f}")
+        all_runs_returns.append(run_returns)
+        trained_agents.append(agent)
+        if title.startswith("Cliff") and grid_width and grid_height:
+            plot_cliff_trajectory_console(agent, grid_width, grid_height, title=f"Trayectoria Final - Run {r+1}")
+            plot_cliff_trajectory_snapshot(agent, grid_width, grid_height,
+                                           title=f"Trayectoria Final - Run {r+1}",
+                                           filename=f"{experiment_tag}_final_trajectory_run{r+1:02d}.png")
+        t_run = time.time() - t0_run
+        print(f"  Run {r + 1} finalizado en {t_run:.1f} segundos.")
+    t_exp = time.time() - t0_exp
+    print(f"--- Experimento '{title}' completado en {t_exp / 60:.1f} minutos ---\n")
+    return checkpoints, all_runs_returns, trained_agents
 
-    # Dibujar promedio destacado
-    ax.plot(checkpoints, avg_returns, 
-            color=average_color, marker='o', markersize=4,
-            linestyle='-', linewidth=3.0, alpha=0.9,
-            label=f'Promedio ({len(all_runs_returns)} corridas)',
-            markerfacecolor=average_color, markeredgecolor='white', markeredgewidth=1)
-    
-    # Configurar ejes y etiquetas
-    ax.set_xlabel("Episodios de Entrenamiento", fontsize=12, fontweight='bold')
-    ax.set_ylabel(ylabel, fontsize=12, fontweight='bold')
-    ax.set_title(title, fontsize=14, fontweight='bold', pad=20)
-    
-    # Grid sutil
-    ax.grid(True, alpha=0.3, linestyle='--')
-    
-    # Leyenda mejorada
-    ax.legend(loc='best', frameon=True, fancybox=True, shadow=True, 
-              fontsize=10, ncol=1 if len(all_runs_returns) <= 3 else 2)
-    
-    # Formatear eje X para números grandes
-    def format_episodes(x, p):
-        if x >= 1_000_000:
-            return f'{int(x/1_000_000)}M'
-        elif x >= 1_000:
-            return f'{int(x/1_000)}k'
-        else:
-            return f'{int(x)}'
-    
-    ax.xaxis.set_major_formatter(plt.FuncFormatter(format_episodes))
-    
-    # Añadir estadísticas en el gráfico
-    final_performance = avg_returns[-1]
-    initial_performance = avg_returns[0]
-    improvement = final_performance - initial_performance
-    
-    stats_text = f'Rendimiento final: {final_performance:.3f}\nMejora total: {improvement:+.3f}'
-    ax.text(0.02, 0.98, stats_text, transform=ax.transAxes, 
-            bbox=dict(boxstyle="round,pad=0.3", facecolor="lightblue", alpha=0.8),
-            verticalalignment='top', fontsize=10)
-    
+def plot_results(checkpoints: List[int], all_runs_returns: List[List[float]], title: str, ylabel: str, filename: str):
+    avg_returns = np.mean(np.array(all_runs_returns), axis=0)
+    plt.figure(figsize=(12, 7))
+    for i, ret in enumerate(all_runs_returns):
+        plt.plot(checkpoints, ret, alpha=0.4, linewidth=1.0, label=f"Run {i+1}")
+    plt.plot(checkpoints, avg_returns, color='blue', linewidth=2.5, label="Promedio", zorder=5)
+    plt.xlabel("Episodios de Entrenamiento")
+    plt.ylabel(ylabel)
+    plt.title(title)
+    plt.grid(True, alpha=0.3, linestyle="--")
+    plt.legend()
     plt.tight_layout()
-    plt.savefig(filename, dpi=300, bbox_inches='tight')
-    print(f"Gráfico guardado en: {filename}")
-    plt.show()
+    plt.savefig(filename, dpi=150)
+    if "Cliff Walking" in title:
+        plt.ylim(bottom=-100, top=0)
+        plt.title(title + " (Vista Ampliada)")
+        zoomed_filename = filename.replace(".png", "_zoomed.png")
+        plt.savefig(zoomed_filename, dpi=150)
+    plt.close()
 
+def plot_cliff_trajectory_console(agent: MonteCarlo, width: int, height: int, title: str):
+    action_arrows = { (1, 0): "↑", (-1, 0): "↓", (0, 1): "→", (0, -1): "←" }
+    grid = [["·" for _ in range(width)] for _ in range(height)]
+    env = CliffEnv(width=width)
+    state = env.reset()
+    done = False
+    max_steps = height * width
+    steps = 0
+    while not done and steps < max_steps:
+        action = agent.get_greedy_action(state)
+        r, c = state
+        grid[r][c] = action_arrows.get(action, "?")
+        state, _, done = env.step(action)
+        steps += 1
+    goal_pos = (0, width - 1)
+    for c in range(1, width - 1):
+        grid[0][c] = "C"
+    grid[goal_pos[0]][goal_pos[1]] = "G"
+    print(f"\n--- {title} ---")
+    for r in reversed(range(height)):
+        print(" ".join(f"{cell:^3}" for cell in grid[r]))
+    print("-" * (4 * width))
 
-def plot_cliff_results(checkpoints, all_runs_returns, avg_returns, title, ylabel, filename):
-    """
-    Función especializada para Cliff Walking con valores muy negativos.
-    """
-    plt.style.use('seaborn-v0_8' if 'seaborn-v0_8' in plt.style.available else 'default')
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 6))
-    
-    individual_colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd']
-    average_color = '#e377c2'
-    
-    # === GRÁFICO 1: VISTA COMPLETA ===
-    ax1.set_title(f"{title} - Vista Completa", fontsize=12, fontweight='bold')
-    
-    for i, run_returns in enumerate(all_runs_returns):
-        ax1.plot(checkpoints, run_returns, 
-                color=individual_colors[i % len(individual_colors)], 
-                linestyle='-', alpha=0.6, linewidth=1.5,
-                label=f'Corrida {i+1}')
-    
-    ax1.plot(checkpoints, avg_returns, 
-            color=average_color, marker='o', markersize=3,
-            linestyle='-', linewidth=3.0, alpha=0.9,
-            label='Promedio', markerfacecolor=average_color, 
-            markeredgecolor='white', markeredgewidth=1)
-    
-    ax1.set_xlabel("Episodios", fontsize=11)
-    ax1.set_ylabel(ylabel, fontsize=11)
-    ax1.grid(True, alpha=0.3)
-    ax1.legend(loc='upper right', fontsize=9)
-    
-    # === GRÁFICO 2: ÚLTIMOS 50% EPISODIOS ===
-    zoom_start = len(checkpoints) // 2
-    zoom_checkpoints = checkpoints[zoom_start:]
-    zoom_avg = avg_returns[zoom_start:]
-    zoom_runs = [run[zoom_start:] for run in all_runs_returns]
-    
-    ax2.set_title(f"Últimos 50% de Episodios - Detalle", fontsize=12, fontweight='bold')
-    
-    for i, run_returns in enumerate(zoom_runs):
-        ax2.plot(zoom_checkpoints, run_returns, 
-                color=individual_colors[i % len(individual_colors)], 
-                linestyle='-', alpha=0.6, linewidth=1.5)
-    
-    ax2.plot(zoom_checkpoints, zoom_avg, 
-            color=average_color, marker='o', markersize=3,
-            linestyle='-', linewidth=3.0, alpha=0.9,
-            markerfacecolor=average_color, markeredgecolor='white', markeredgewidth=1)
-    
-    ax2.set_xlabel("Episodios", fontsize=11)
-    ax2.set_ylabel(ylabel, fontsize=11)
-    ax2.grid(True, alpha=0.3)
-    
-    # Estadísticas
-    improvement = avg_returns[-1] - avg_returns[0]
-    ax2.text(0.02, 0.02, f'Mejora total: {improvement:+.1f}', 
-             transform=ax2.transAxes, fontsize=10,
-             bbox=dict(boxstyle="round,pad=0.3", facecolor="lightgreen", alpha=0.8),
-             verticalalignment='bottom')
-    
-    # Formatear ejes X
-    for ax in [ax1, ax2]:
-        ax.xaxis.set_major_formatter(plt.FuncFormatter(
-            lambda x, p: f'{int(x/1000)}k' if x >= 1000 else f'{int(x)}'
-        ))
-    
+def plot_cliff_trajectory_snapshot(agent: MonteCarlo, width: int, height: int, title: str, filename: str):
+    if width is None or height is None:
+        print("Advertencia: No se pueden generar snapshots de trayectoria sin dimensiones de grilla.")
+        return
+    action_arrows = { (1, 0): "↑", (-1, 0): "↓", (0, 1): "→", (0, -1): "←" }
+    grid_data = np.full((height, width), 0.5)
+    env = CliffEnv(width=width)
+    state = env.reset()
+    done = False
+    trajectory = []
+    max_steps = 2 * (width * height)
+    steps = 0
+    while not done and steps < max_steps:
+        action = agent.get_greedy_action(state)
+        trajectory.append((state, action))
+        state, _, done = env.step(action)
+        steps += 1
+    for r in range(height):
+        for c in range(width):
+            if r == 0 and c > 0 and c < width - 1:
+                grid_data[r, c] = 0
+    for (r, c), action in trajectory:
+        grid_data[r, c] = 1
+    start_pos = env.reset()
+    goal_pos = (0, width - 1)
+    plt.figure(figsize=(width * 0.7, height * 0.7))
+    ax = plt.gca()
+    cmap = plt.get_cmap('RdYlGn', 3)
+    ax.imshow(grid_data, cmap=cmap, origin='lower', vmin=0, vmax=1)
+    for (r, c), action in trajectory:
+        if (r, c) != start_pos and (r, c) != goal_pos:
+            ax.text(c, r, action_arrows.get(action, "?"), ha="center", va="center", color="black", fontsize=10)
+    ax.text(start_pos[1], start_pos[0], "S", ha="center", va="center", color="white", fontweight='bold', 
+            bbox=dict(boxstyle="circle,pad=0.3", fc="blue", ec="k", lw=1))
+    ax.text(goal_pos[1], goal_pos[0], "G", ha="center", va="center", color="white", fontweight='bold',
+            bbox=dict(boxstyle="circle,pad=0.3", fc="black", ec="k", lw=1))
+    ax.set_xticks(np.arange(width))
+    ax.set_yticks(np.arange(height))
+    ax.set_xticklabels([])
+    ax.set_yticklabels([])
+    ax.grid(True, color='gray', linestyle='-', linewidth=0.5)
+    ax.set_title(title)
     plt.tight_layout()
-    plt.savefig(filename, dpi=300, bbox_inches='tight')
-    print(f"Gráfico Cliff guardado en: {filename}")
-    plt.show()
+    plt.savefig(filename, dpi=150)
+    plt.close()
 
+def generate_and_print_blackjack_policy(agent: MonteCarlo, run_num: int):
+    action_map = {0: 'P', 1: 'H'}
 
-def format_time(seconds):
-    """Formatear tiempo en formato legible"""
-    if seconds < 60:
-        return f"{seconds:.2f} segundos"
-    elif seconds < 3600:
-        minutes = seconds / 60
-        return f"{minutes:.2f} minutos"
-    else:
-        hours = seconds / 3600
-        return f"{hours:.2f} horas"
+    def get_policy_table(usable_ace: bool):
+        player_sums = range(21, 11, -1)
+        dealer_cards = range(1, 11)
+        
+        policy_grid = []
+        for p_sum in player_sums:
+            row = []
+            for d_card in dealer_cards:
+                state = (p_sum, d_card, usable_ace)
+                action = agent.get_greedy_action(state)
+                row.append(action_map.get(action, '?'))
+            policy_grid.append([str(p_sum)] + row)
+        
+        headers = ["A"] + [str(d) for d in range(2, 11)]
+        return policy_grid, headers
 
-
-def print_timing_summary(experiment_times):
-    """Imprimir resumen completo de tiempos"""
-    print("\n" + "="*60)
-    print("RESUMEN DE TIEMPOS DE EJECUCIÓN")
-    print("="*60)
+    print(f"\n policy for Blackjack - Run {run_num} ----------")
     
-    total_time = sum(data['total'] for data in experiment_times.values())
-    
-    for experiment, time_data in experiment_times.items():
-        print(f"\n{experiment.upper()}:")
-        print(f"   Tiempo total: {format_time(time_data['total'])}")
-        print(f"   Tiempo por corrida: {format_time(time_data['per_run'])}")
-        print(f"   Episodios totales: {time_data['total_episodes']:,}")
-        print(f"   Episodios/segundo: {time_data['episodes_per_sec']:.0f}")
-    
-    print(f"\nTIEMPO TOTAL: {format_time(total_time)}")
-    print("="*60)
+    print("\nPolítica para Manos Duras (Sin As Usable)")
+    hard_policy, headers = get_policy_table(usable_ace=False)
+    header_line = ["Suma"] + headers
+    print(f"{' | '.join(f'{h:^4}' for h in header_line)}")
+    print("-" * len(' | '.join(f'{h:^4}' for h in header_line)))
+    for row in hard_policy:
+        print(f"{' | '.join(f'{item:^4}' for item in row)}")
+
+    print("\nPolítica para Manos Blandas (Con As Usable)")
+    soft_policy, headers = get_policy_table(usable_ace=True)
+    header_line = ["Suma"] + headers
+    print(f"{' | '.join(f'{h:^4}' for h in header_line)}")
+    print("-" * len(' | '.join(f'{h:^4}' for h in header_line)))
+    for row in soft_policy:
+        print(f"{' | '.join(f'{item:^4}' for item in row)}")
+    print("-" * len(' | '.join(f'{h:^4}' for h in header_line)))
 
 
 if __name__ == "__main__":
-    
-    experiment_times = {}
-    
-    print("INICIANDO EXPERIMENTOS DE MONTE CARLO")
-    print("="*50)
-    
-    # ===============================================
-    # Experimento 1: Blackjack
-    # ===============================================
-    print("\nIniciando experimento de Blackjack...")
-    
-    BJ_EPISODES = 10_000_000
-    BJ_RUNS = 5
-    BJ_EVAL_EVERY = 500_000
-    BJ_TEST_EPISODES = 100_000
-
-    blackjack_start_time = time.time()
-    
-    blackjack_checkpoints = [1] + list(range(BJ_EVAL_EVERY, BJ_EPISODES + 1, BJ_EVAL_EVERY))
-    all_blackjack_returns = []
-    blackjack_run_times = []
-
-    for i in range(BJ_RUNS):
-        run_start_time = time.time()
-        print(f"  Blackjack - Corrida {i + 1}/{BJ_RUNS}...")
-        
-        env = BlackjackEnv()
-        agent = MonteCarlo(env, epsilon=0.01, gamma=1.0)
-        run_returns = []
-
-        # Evaluación inicial (episodio 1)
-        trajectory = agent.generate_episode()
-        agent.update_q_values(trajectory)
-        performance = agent.evaluate(n_episodes=BJ_TEST_EPISODES)
-        run_returns.append(performance)
-        print(f"    Episodio 1: Retorno = {performance:.4f}")
-
-        # Entrenamiento principal
-        for episode in range(2, BJ_EPISODES + 1):
-            trajectory = agent.generate_episode()
-            agent.update_q_values(trajectory)
-
-            if episode in blackjack_checkpoints:
-                performance = agent.evaluate(n_episodes=BJ_TEST_EPISODES)
-                run_returns.append(performance)
-                if episode % (BJ_EVAL_EVERY * 4) == 0:
-                    print(f"    Episodio {episode:,}: Retorno = {performance:.4f}")
-        
-        run_duration = time.time() - run_start_time
-        blackjack_run_times.append(run_duration)
-        all_blackjack_returns.append(run_returns)
-        print(f"    Corrida {i+1} completada en: {format_time(run_duration)}")
-
-    # Estadísticas de tiempo
-    blackjack_total_time = time.time() - blackjack_start_time
-    blackjack_avg_time = np.mean(blackjack_run_times)
-    
-    experiment_times['Blackjack'] = {
-        'total': blackjack_total_time,
-        'per_run': blackjack_avg_time,
-        'total_episodes': BJ_EPISODES * BJ_RUNS,
-        'episodes_per_sec': (BJ_EPISODES * BJ_RUNS) / blackjack_total_time,
-    }
-    
-    avg_blackjack_returns = np.mean(all_blackjack_returns, axis=0)
-    
-    print(f"\nBLACKJACK COMPLETADO:")
-    print(f"   Tiempo total: {format_time(blackjack_total_time)}")
-    print(f"   Rendimiento inicial: {avg_blackjack_returns[0]:.4f}")
-    print(f"   Rendimiento final: {avg_blackjack_returns[-1]:.4f}")
-    print(f"   Mejora: {avg_blackjack_returns[-1] - avg_blackjack_returns[0]:+.4f}")
-    
-    # Graficar Blackjack
-    plot_results(
-        blackjack_checkpoints,
-        all_blackjack_returns,
-        avg_blackjack_returns,
-        "Rendimiento de Monte Carlo en Blackjack",
-        "Retorno Promedio (evaluación greedy con ε=0)",
-        f"blackjack_results_{datetime.now().strftime('%Y%m%d_%H%M')}.png"
+    now = datetime.now().strftime('%Y%m%d_%H%M')
+    bj_checkpoints, bj_all_returns, bj_agents = run_experiment(
+        title="Blackjack",
+        env=BlackjackEnv(),
+        num_runs=5,
+        train_episodes=10_000_000,
+        eval_every=500_000,
+        eval_episodes=100_000,
+        epsilon=0.01,
+        gamma=1.0,
+        experiment_tag=f"blackjack_{now}"
     )
+    plot_results(bj_checkpoints, bj_all_returns,
+                 "Rendimiento de Monte Carlo en Blackjack",
+                 "Retorno Promedio en Evaluación",
+                 f"blackjack_perf_{now}.png")
 
-    # ===============================================
-    # Experimento 2: Cliff Walking (width=6)
-    # ===============================================
-    print("\nIniciando experimento de Cliff Walking (width=6)...")
+    print("\n" + "="*60)
+    print("      GENERANDO POLÍTICAS FINALES DE BLACKJACK")
+    print("="*60)
+    print("Leyenda: P = Plantarse (Stick), H = Pedir (Hit)\n")
+    for i, agent in enumerate(bj_agents):
+        generate_and_print_blackjack_policy(agent, run_num=i + 1)
+    print("\n" + "="*60 + "\n")
     
-    CLIFF_EPISODES = 200_000
-    CLIFF_RUNS = 5
-    CLIFF_EVAL_EVERY = 1_000
-    
-    cliff_start_time = time.time()
-    
-    cliff_checkpoints = [1] + list(range(CLIFF_EVAL_EVERY, CLIFF_EPISODES + 1, CLIFF_EVAL_EVERY))
-    all_cliff_returns = []
-    cliff_run_times = []
-
-    for i in range(CLIFF_RUNS):
-        run_start_time = time.time()
-        print(f"  Cliff (w=6) - Corrida {i + 1}/{CLIFF_RUNS}...")
-        
-        env = CliffEnv(width=6)
-        agent = MonteCarlo(env, epsilon=0.1, gamma=1.0)
-        run_returns = []
-
-        # Evaluación inicial
-        trajectory = agent.generate_episode()
-        agent.update_q_values(trajectory)
-        performance = agent.evaluate(n_episodes=1)
-        run_returns.append(performance)
-
-        # Entrenamiento principal
-        for episode in range(2, CLIFF_EPISODES + 1):
-            trajectory = agent.generate_episode()
-            agent.update_q_values(trajectory)
-
-            if episode in cliff_checkpoints:
-                performance = agent.evaluate(n_episodes=1)
-                run_returns.append(performance)
-        
-        run_duration = time.time() - run_start_time
-        cliff_run_times.append(run_duration)
-        all_cliff_returns.append(run_returns)
-        print(f"    Corrida {i+1} completada - Retorno final: {run_returns[-1]:.1f}")
-
-    cliff_total_time = time.time() - cliff_start_time
-    cliff_avg_time = np.mean(cliff_run_times)
-    
-    experiment_times['Cliff Walking (w=6)'] = {
-        'total': cliff_total_time,
-        'per_run': cliff_avg_time,
-        'total_episodes': CLIFF_EPISODES * CLIFF_RUNS,
-        'episodes_per_sec': (CLIFF_EPISODES * CLIFF_RUNS) / cliff_total_time,
-    }
-
-    avg_cliff_returns = np.mean(all_cliff_returns, axis=0)
-
-    print(f"\nCLIFF (w=6) COMPLETADO:")
-    print(f"   Retorno inicial: {avg_cliff_returns[0]:.2f}")
-    print(f"   Retorno final: {avg_cliff_returns[-1]:.2f}")
-    print(f"   Mejora: {avg_cliff_returns[-1] - avg_cliff_returns[0]:+.2f}")
-
-    # Graficar Cliff
-    plot_cliff_results(
-        cliff_checkpoints,
-        all_cliff_returns,
-        avg_cliff_returns,
-        "Rendimiento de Monte Carlo en Cliff Walking (width=6)",
-        "Retorno (evaluación greedy con ε=0)",
-        f"cliff_w6_results_{datetime.now().strftime('%Y%m%d_%H%M')}.png"
+    c6_env = CliffEnv(width=6)
+    c6_checkpoints, c6_all_returns, c6_agents = run_experiment(
+        title="Cliff Walking (width=6)",
+        env=c6_env,
+        num_runs=5,
+        train_episodes=200_000,
+        eval_every=1_000,
+        eval_episodes=1,
+        epsilon=0.1,
+        gamma=1.0,
+        experiment_tag=f"cliff6_{now}",
+        grid_width=6,
+        grid_height=4
     )
-
-    # ===============================================
-    # Experimento 3: Cliff Walking (width=12)
-    # ===============================================
-    print("\nIniciando experimento de Cliff Walking (width=12)...")
-    
-    cliff12_start_time = time.time()
-    cliff12_checkpoints = [1] + list(range(CLIFF_EVAL_EVERY, CLIFF_EPISODES + 1, CLIFF_EVAL_EVERY))
-    all_cliff12_returns = []
-    cliff12_run_times = []
-
-    for i in range(CLIFF_RUNS):
-        run_start_time = time.time()
-        print(f"  Cliff (w=12) - Corrida {i + 1}/{CLIFF_RUNS}...")
-
-        env12 = CliffEnv(width=12)
-        agent12 = MonteCarlo(env12, epsilon=0.1, gamma=1.0)
-        run_returns = []
-
-        # Evaluación inicial
-        trajectory = agent12.generate_episode()
-        agent12.update_q_values(trajectory)
-        performance = agent12.evaluate(n_episodes=1)
-        run_returns.append(performance)
-
-        # Entrenamiento principal
-        for episode in range(2, CLIFF_EPISODES + 1):
-            trajectory = agent12.generate_episode()
-            agent12.update_q_values(trajectory)
-
-            if episode in cliff12_checkpoints:
-                performance = agent12.evaluate(n_episodes=1)
-                run_returns.append(performance)
-
-        run_duration = time.time() - run_start_time
-        cliff12_run_times.append(run_duration)
-        all_cliff12_returns.append(run_returns)
-        print(f"    Corrida {i+1} completada - Retorno final: {run_returns[-1]:.1f}")
-
-    cliff12_total_time = time.time() - cliff12_start_time
-    cliff12_avg_time = np.mean(cliff12_run_times)
-    
-    experiment_times['Cliff Walking (w=12)'] = {
-        'total': cliff12_total_time,
-        'per_run': cliff12_avg_time,
-        'total_episodes': CLIFF_EPISODES * CLIFF_RUNS,
-        'episodes_per_sec': (CLIFF_EPISODES * CLIFF_RUNS) / cliff12_total_time,
-    }
-
-    avg_cliff12_returns = np.mean(all_cliff12_returns, axis=0)
-    
-    print(f"\nCLIFF (w=12) COMPLETADO:")
-    print(f"   Retorno inicial: {avg_cliff12_returns[0]:.2f}")
-    print(f"   Retorno final: {avg_cliff12_returns[-1]:.2f}")
-    print(f"   Mejora: {avg_cliff12_returns[-1] - avg_cliff12_returns[0]:+.2f}")
-
-    # Graficar Cliff w=12
-    plot_cliff_results(
-        cliff12_checkpoints,
-        all_cliff12_returns,
-        avg_cliff12_returns,
-        "Rendimiento de Monte Carlo en Cliff Walking (width=12)",
-        "Retorno (evaluación greedy con ε=0)",
-        f"cliff_w12_results_{datetime.now().strftime('%Y%m%d_%H%M')}.png"
+    plot_results(c6_checkpoints, c6_all_returns,
+                 "Rendimiento de MC en Cliff Walking (width=6)",
+                 "Retorno Obtenido en Evaluación (1 episodio)",
+                 f"cliff6_perf_{now}.png")
+                 
+    c12_env = CliffEnv(width=12)
+    c12_checkpoints, c12_all_returns, c12_agents = run_experiment(
+        title="Cliff Walking (width=12)",
+        env=c12_env,
+        num_runs=5,
+        train_episodes=200_000,
+        eval_every=1_000,
+        eval_episodes=1,
+        epsilon=0.1,
+        gamma=1.0,
+        experiment_tag=f"cliff12_{now}",
+        grid_width=12,
+        grid_height=4
     )
-
-    # ===============================================
-    # Resumen final
-    # ===============================================
-    print_timing_summary(experiment_times)
+    plot_results(c12_checkpoints, c12_all_returns,
+                 "Rendimiento de MC en Cliff Walking (width=12)",
+                 "Retorno Obtenido en Evaluación (1 episodio)",
+                 f"cliff12_{now}.png")
